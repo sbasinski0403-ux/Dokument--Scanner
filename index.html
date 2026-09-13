@@ -1,11 +1,17 @@
 <!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="apple-mobile-web-app-capable" content="yes"><title>Dokument-Scanner</title><style>
-body{font-family:system-ui;margin:0;background:#f4f5f7;color:#111827}header{background:#111827;color:white;padding:17px;font-size:21px;font-weight:800}main{max-width:700px;margin:auto;padding:14px}.card{background:white;padding:17px;border-radius:15px;margin-bottom:14px}.actionbtn{display:block;width:100%;text-align:center;border-radius:10px;font-weight:800;cursor:pointer;margin:8px 0;border:0}.scan{background:#2563eb;color:white;padding:17px}.pick{background:#e5e7eb;color:#111827;padding:13px}.page{border:1px solid #ddd;border-radius:10px;padding:8px;margin:10px 0}.page img,#report img{width:100%;max-height:700px;object-fit:contain}button{border:0;border-radius:9px;padding:11px 14px;font-weight:800;margin:7px 5px 0 0}.blue{background:#2563eb;color:white}.gray{background:#e5e7eb}.red{background:#fee2e2;color:#b91c1c}.small{color:#6b7280;font-size:13px}.ok{color:#047857}.warn{color:#b45309}#report{display:none}@media print{header,#scan,#report button{display:none!important}body,main{background:white;margin:0;padding:0}#report{display:block!important}.rp{page-break-after:always}.rp:last-child{page-break-after:auto}#report img{max-height:270mm}}
+body{font-family:system-ui;margin:0;background:#f4f5f7;color:#111827}header{background:#111827;color:white;padding:17px;font-size:21px;font-weight:800}main{max-width:700px;margin:auto;padding:14px}.card{background:white;padding:17px;border-radius:15px;margin-bottom:14px}.actionbtn{display:block;width:100%;text-align:center;border-radius:10px;font-weight:800;cursor:pointer;margin:8px 0;border:0}.scan{background:#2563eb;color:white;padding:17px}.pick{background:#e5e7eb;color:#111827;padding:13px}.page{border:1px solid #ddd;border-radius:10px;padding:8px;margin:10px 0}.page img,#report img{width:100%;max-height:700px;object-fit:contain}button{border:0;border-radius:9px;padding:11px 14px;font-weight:800;margin:7px 5px 0 0}.blue{background:#2563eb;color:white}.gray{background:#e5e7eb}.red{background:#fee2e2;color:#b91c1c}.small{color:#6b7280;font-size:13px}.cameraBox{display:none;margin:12px 0;padding:10px;background:#0f172a;border-radius:12px}.cameraBox video{width:100%;max-height:65vh;object-fit:cover;border-radius:10px;background:#000}.cameraControls{display:flex;gap:8px;flex-wrap:wrap}.cameraControls button{flex:1;min-width:140px}.ok{color:#047857}.warn{color:#b45309}#report{display:none}@media print{header,#scan,#report button{display:none!important}body,main{background:white;margin:0;padding:0}#report{display:block!important}.rp{page-break-after:always}.rp:last-child{page-break-after:auto}#report img{max-height:270mm}}
 </style></head><body><header>Dokument-Scanner</header><main><section id="scan" class="card"><h2>Dokument scannen</h2><p class="small">Seite fotografieren. Wenn die Blattkanten erkannt werden, wird der Hintergrund automatisch entfernt und die Perspektive begradigt.</p>
-<button id="cameraBtn" type="button" class="actionbtn scan">📷 Jetzt fotografieren</button>
+<button id="cameraBtn" type="button" class="actionbtn scan">📷 Kamera öffnen</button>
+<div id="cameraBox" class="cameraBox">
+  <video id="cameraVideo" autoplay muted playsinline></video>
+  <div class="cameraControls">
+    <button id="captureBtn" type="button" class="blue">📸 Foto aufnehmen</button>
+    <button id="closeCameraBtn" type="button" class="gray">Kamera schließen</button>
+  </div>
+</div>
 <button id="galleryBtn" type="button" class="actionbtn pick">🖼️ Bild aus Galerie auswählen</button>
-<input id="cam" type="file" accept="image/*" capture="environment" style="position:fixed;left:-9999px;top:-9999px" aria-label="Jetzt fotografieren">
 <input id="gallery" type="file" accept="image/*" multiple style="position:fixed;left:-9999px;top:-9999px" aria-label="Bild aus Galerie auswählen">
-<p id="status" class="small">Bereit. Die Seitenerkennung wird erst nach dem Foto geladen.</p><div id="pages"></div><button id="pdf" class="blue">📄 PDF erstellen</button><button id="clear" class="gray">Alle löschen</button></section><section id="report" class="card"><div id="rp"></div><button class="blue" onclick="window.print()">Teilen / als PDF sichern</button><button class="gray" onclick="document.getElementById('report').style.display='none'">Zurück</button></section></main>
+<p id="status" class="small">Bereit. Tippe auf „Kamera öffnen“. Die Seitenerkennung wird erst nach dem Foto geladen.</p><div id="pages"></div><button id="pdf" class="blue">📄 PDF erstellen</button><button id="clear" class="gray">Alle löschen</button></section><section id="report" class="card"><div id="rp"></div><button class="blue" onclick="window.print()">Teilen / als PDF sichern</button><button class="gray" onclick="document.getElementById('report').style.display='none'">Zurück</button></section></main>
 <script>
 const $=x=>document.getElementById(x);let pages=[];let cvReady=false;let cvFailed=false;
 function setStatus(t,c=''){const e=$('status');e.textContent=t;e.className='small '+c}
@@ -59,16 +65,47 @@ async function comp(file){
  }catch(err){if(decoded)try{decoded.cleanup()}catch(e){};throw err}
 }
 async function handleFiles(files){const fs=[...files].slice(0,20);if(!fs.length)return;setStatus(`Verarbeite ${fs.length} Seite${fs.length===1?'':'n'} …`);let added=0;for(const f of fs){try{pages.push(await comp(f));added++;render()}catch(err){console.error(err);alert('Dieses Foto konnte leider nicht verarbeitet werden. Bitte versuche es erneut.')}}setStatus(added?`Fertig – ${added} Seite${added===1?'':'n'} hinzugefügt.`:'Kein Foto hinzugefügt.',added?'ok':'warn')}
-$('cameraBtn').addEventListener('click',()=>{
-  setStatus('Kamera wird geöffnet …');
-  $('cam').click();
-});
-$('galleryBtn').addEventListener('click',()=>{
-  setStatus('Fotoauswahl wird geöffnet …');
-  $('gallery').click();
-});
-$('cam').addEventListener('change',async e=>{const files=e.target.files;if(!files||!files.length){setStatus('Bereit.');return}await handleFiles(files);e.target.value=''})
+let cameraStream=null;
+function stopCamera(){
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
+  const v=$('cameraVideo');try{v.pause()}catch(e){};v.srcObject=null;$('cameraBox').style.display='none';
+}
+async function openCamera(){
+  if(!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setStatus('Direkter Kamerazugriff ist hier nicht verfügbar. Öffne die veröffentlichte HTTPS-Seite auf github.io.','warn');
+    alert('Die Live-Kamera funktioniert nur auf der veröffentlichten HTTPS-Webseite. Bitte öffne deine github.io-Adresse in Safari.');
+    return;
+  }
+  try{
+    stopCamera();setStatus('Kamerazugriff wird angefragt …');
+    cameraStream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+    const v=$('cameraVideo');v.srcObject=cameraStream;await v.play();$('cameraBox').style.display='block';$('cameraBox').scrollIntoView({behavior:'smooth',block:'center'});setStatus('Kamera bereit. Richte das Blatt aus und tippe auf „Foto aufnehmen“.','ok');
+  }catch(err){
+    console.error('Kamera konnte nicht geöffnet werden:',err);
+    let msg='Kamera konnte nicht geöffnet werden.';
+    if(err && (err.name==='NotAllowedError'||err.name==='SecurityError')) msg='Kamerazugriff wurde nicht erlaubt. Erlaube Safari den Kamerazugriff für diese Webseite.';
+    else if(err && err.name==='NotFoundError') msg='Keine Kamera gefunden.';
+    else if(err && err.name==='NotReadableError') msg='Die Kamera wird gerade von einer anderen App verwendet.';
+    setStatus(msg,'warn');alert(msg);stopCamera();
+  }
+}
+async function captureCamera(){
+  const v=$('cameraVideo');
+  if(!cameraStream || !v.videoWidth || !v.videoHeight){setStatus('Kamera ist noch nicht bereit.','warn');return}
+  try{
+    setStatus('Foto wird aufgenommen …');
+    const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+    const blob=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(new Error('Foto konnte nicht erstellt werden')),'image/jpeg',.95));
+    const file=new File([blob],'scan-'+Date.now()+'.jpg',{type:'image/jpeg'});
+    stopCamera();await handleFiles([file]);
+  }catch(err){console.error(err);setStatus('Foto konnte nicht aufgenommen werden.','warn');alert('Foto konnte nicht aufgenommen werden. Bitte versuche es erneut.')}
+}
+$('cameraBtn').addEventListener('click',openCamera);
+$('captureBtn').addEventListener('click',captureCamera);
+$('closeCameraBtn').addEventListener('click',()=>{stopCamera();setStatus('Kamera geschlossen.')});
+$('galleryBtn').addEventListener('click',()=>{setStatus('Fotoauswahl wird geöffnet …');$('gallery').click()});
 $('gallery').addEventListener('change',async e=>{const files=e.target.files;if(!files||!files.length){setStatus('Bereit.');return}await handleFiles(files);e.target.value=''})
+window.addEventListener('pagehide',stopCamera);
 function render(){$('pages').innerHTML=pages.length?pages.map((p,i)=>`<div class="page"><b>Seite ${i+1}</b><img src="${p}"><button class="red" onclick="pages.splice(${i},1);render()">Löschen</button>${i?`<button class="gray" onclick="move(${i},-1)">↑</button>`:''}${i<pages.length-1?`<button class="gray" onclick="move(${i},1)">↓</button>`:''}</div>`).join(''):'<p class="small">Noch keine Seiten gescannt.</p>'}
 window.move=(i,d)=>{const x=pages.splice(i,1)[0];pages.splice(i+d,0,x);render()};$('clear').onclick=()=>{pages=[];render()};$('pdf').onclick=()=>{if(!pages.length)return alert('Bitte zuerst eine Seite scannen.');$('rp').innerHTML=pages.map(p=>`<div class="rp"><img src="${p}"></div>`).join('');$('report').style.display='block';$('report').scrollIntoView()};render();
 </script></body></html>
