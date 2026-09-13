@@ -1,5 +1,5 @@
 <!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="apple-mobile-web-app-capable" content="yes"><title>Dokument-Scanner</title><style>
-body{font-family:system-ui;margin:0;background:#f4f5f7;color:#111827}header{background:#111827;color:white;padding:17px;font-size:21px;font-weight:800}main{max-width:700px;margin:auto;padding:14px}.card{background:white;padding:17px;border-radius:15px;margin-bottom:14px}.actionbtn{display:block;width:100%;text-align:center;border-radius:10px;font-weight:800;cursor:pointer;margin:8px 0;border:0}.scan{background:#2563eb;color:white;padding:17px}.pick{background:#e5e7eb;color:#111827;padding:13px}.page{border:1px solid #ddd;border-radius:10px;padding:8px;margin:10px 0}.page img,#report img{width:100%;max-height:700px;object-fit:contain}button{border:0;border-radius:9px;padding:11px 14px;font-weight:800;margin:7px 5px 0 0}.blue{background:#2563eb;color:white}.gray{background:#e5e7eb}.red{background:#fee2e2;color:#b91c1c}.small{color:#6b7280;font-size:13px}.cameraBox{display:none;margin:12px 0;padding:10px;background:#0f172a;border-radius:12px}.cameraBox video{width:100%;max-height:65vh;object-fit:cover;border-radius:10px;background:#000}.cameraControls{display:flex;gap:8px;flex-wrap:wrap}.cameraControls button{flex:1;min-width:140px}.ok{color:#047857}.warn{color:#b45309}#report{display:none}@media print{header,#scan,#report button{display:none!important}body,main{background:white;margin:0;padding:0}#report{display:block!important}.rp{page-break-after:always}.rp:last-child{page-break-after:auto}#report img{max-height:270mm}}
+body{font-family:system-ui;margin:0;background:#f4f5f7;color:#111827}header{background:#111827;color:white;padding:17px;font-size:21px;font-weight:800}main{max-width:700px;margin:auto;padding:14px}.card{background:white;padding:17px;border-radius:15px;margin-bottom:14px}.actionbtn{display:block;width:100%;text-align:center;border-radius:10px;font-weight:800;cursor:pointer;margin:8px 0;border:0}.scan{background:#2563eb;color:white;padding:17px}.pick{background:#e5e7eb;color:#111827;padding:13px}.page{border:1px solid #ddd;border-radius:10px;padding:8px;margin:10px 0}.page img,#report img{width:100%;max-height:700px;object-fit:contain}button{border:0;border-radius:9px;padding:11px 14px;font-weight:800;margin:7px 5px 0 0}.blue{background:#2563eb;color:white}.gray{background:#e5e7eb}.red{background:#fee2e2;color:#b91c1c}.small{color:#6b7280;font-size:13px}.cameraBox{display:none;position:relative;margin:12px 0;padding:10px 10px 88px;background:#0f172a;border-radius:12px}.cameraBox video{width:100%;max-height:68vh;object-fit:cover;border-radius:10px;background:#000}.cameraControls{position:absolute;left:10px;right:10px;bottom:10px;display:flex;gap:8px}.cameraControls button{flex:1;min-width:0}.cameraControls #captureBtn{font-size:18px;padding:16px 12px}.ok{color:#047857}.warn{color:#b45309}#report{display:none}@media print{header,#scan,#report button{display:none!important}body,main{background:white;margin:0;padding:0}#report{display:block!important}.rp{page-break-after:always}.rp:last-child{page-break-after:auto}#report img{max-height:270mm}}
 </style></head><body><header>Dokument-Scanner</header><main><section id="scan" class="card"><h2>Dokument scannen</h2><p class="small">Seite fotografieren. Wenn die Blattkanten erkannt werden, wird der Hintergrund automatisch entfernt und die Perspektive begradigt.</p>
 <button id="cameraBtn" type="button" class="actionbtn scan">📷 Kamera öffnen</button>
 <div id="cameraBox" class="cameraBox">
@@ -79,7 +79,7 @@ async function openCamera(){
   try{
     stopCamera();setStatus('Kamerazugriff wird angefragt …');
     cameraStream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
-    const v=$('cameraVideo');v.srcObject=cameraStream;await v.play();$('cameraBox').style.display='block';$('cameraBox').scrollIntoView({behavior:'smooth',block:'center'});setStatus('Kamera bereit. Richte das Blatt aus und tippe auf „Foto aufnehmen“.','ok');
+    const v=$('cameraVideo');v.srcObject=cameraStream;await v.play();$('cameraBox').style.display='block';$('cameraBox').scrollIntoView({behavior:'smooth',block:'start'});setStatus('Kamera bereit. Der blaue Auslöser ist direkt unter dem Kamerabild.','ok');
   }catch(err){
     console.error('Kamera konnte nicht geöffnet werden:',err);
     let msg='Kamera konnte nicht geöffnet werden.';
@@ -95,9 +95,13 @@ async function captureCamera(){
   try{
     setStatus('Foto wird aufgenommen …');
     const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0,c.width,c.height);
-    const blob=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(new Error('Foto konnte nicht erstellt werden')),'image/jpeg',.95));
+    let blob=await new Promise(resolve=>c.toBlob(resolve,'image/jpeg',.95));
+    if(!blob){
+      const dataUrl=c.toDataURL('image/jpeg',.95);
+      const r=await fetch(dataUrl); blob=await r.blob();
+    }
     const file=new File([blob],'scan-'+Date.now()+'.jpg',{type:'image/jpeg'});
-    stopCamera();await handleFiles([file]);
+    stopCamera();setStatus('Foto aufgenommen – wird verarbeitet …');await handleFiles([file]);
   }catch(err){console.error(err);setStatus('Foto konnte nicht aufgenommen werden.','warn');alert('Foto konnte nicht aufgenommen werden. Bitte versuche es erneut.')}
 }
 $('cameraBtn').addEventListener('click',openCamera);
