@@ -1,9 +1,11 @@
 <!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="apple-mobile-web-app-capable" content="yes"><title>Dokument-Scanner</title><style>
-body{font-family:system-ui;margin:0;background:#f4f5f7;color:#111827}header{background:#111827;color:white;padding:17px;font-size:21px;font-weight:800}main{max-width:700px;margin:auto;padding:14px}.card{background:white;padding:17px;border-radius:15px;margin-bottom:14px}.filebtn{position:relative;display:block;text-align:center;border-radius:10px;font-weight:800;cursor:pointer;margin:8px 0;overflow:hidden}.scan{background:#2563eb;color:white;padding:17px}.pick{background:#e5e7eb;color:#111827;padding:13px}.filebtn input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:100px}.page{border:1px solid #ddd;border-radius:10px;padding:8px;margin:10px 0}.page img,#report img{width:100%;max-height:700px;object-fit:contain}button{border:0;border-radius:9px;padding:11px 14px;font-weight:800;margin:7px 5px 0 0}.blue{background:#2563eb;color:white}.gray{background:#e5e7eb}.red{background:#fee2e2;color:#b91c1c}.small{color:#6b7280;font-size:13px}.ok{color:#047857}.warn{color:#b45309}#report{display:none}@media print{header,#scan,#report button{display:none!important}body,main{background:white;margin:0;padding:0}#report{display:block!important}.rp{page-break-after:always}.rp:last-child{page-break-after:auto}#report img{max-height:270mm}}
+body{font-family:system-ui;margin:0;background:#f4f5f7;color:#111827}header{background:#111827;color:white;padding:17px;font-size:21px;font-weight:800}main{max-width:700px;margin:auto;padding:14px}.card{background:white;padding:17px;border-radius:15px;margin-bottom:14px}.actionbtn{display:block;width:100%;text-align:center;border-radius:10px;font-weight:800;cursor:pointer;margin:8px 0;border:0}.scan{background:#2563eb;color:white;padding:17px}.pick{background:#e5e7eb;color:#111827;padding:13px}.page{border:1px solid #ddd;border-radius:10px;padding:8px;margin:10px 0}.page img,#report img{width:100%;max-height:700px;object-fit:contain}button{border:0;border-radius:9px;padding:11px 14px;font-weight:800;margin:7px 5px 0 0}.blue{background:#2563eb;color:white}.gray{background:#e5e7eb}.red{background:#fee2e2;color:#b91c1c}.small{color:#6b7280;font-size:13px}.ok{color:#047857}.warn{color:#b45309}#report{display:none}@media print{header,#scan,#report button{display:none!important}body,main{background:white;margin:0;padding:0}#report{display:block!important}.rp{page-break-after:always}.rp:last-child{page-break-after:auto}#report img{max-height:270mm}}
 </style></head><body><header>Dokument-Scanner</header><main><section id="scan" class="card"><h2>Dokument scannen</h2><p class="small">Seite fotografieren. Wenn die Blattkanten erkannt werden, wird der Hintergrund automatisch entfernt und die Perspektive begradigt.</p>
-<div class="filebtn scan">📷 Jetzt fotografieren<input id="cam" type="file" accept="image/*" capture="environment" aria-label="Jetzt fotografieren"></div>
-<div class="filebtn pick">🖼️ Bild aus Galerie auswählen<input id="gallery" type="file" accept="image/*" multiple aria-label="Bild aus Galerie auswählen"></div>
-<p id="status" class="small">Seitenerkennung wird geladen …</p><div id="pages"></div><button id="pdf" class="blue">📄 PDF erstellen</button><button id="clear" class="gray">Alle löschen</button></section><section id="report" class="card"><div id="rp"></div><button class="blue" onclick="window.print()">Teilen / als PDF sichern</button><button class="gray" onclick="document.getElementById('report').style.display='none'">Zurück</button></section></main>
+<button id="cameraBtn" type="button" class="actionbtn scan">📷 Jetzt fotografieren</button>
+<button id="galleryBtn" type="button" class="actionbtn pick">🖼️ Bild aus Galerie auswählen</button>
+<input id="cam" type="file" accept="image/*" capture="environment" style="position:fixed;left:-9999px;top:-9999px" aria-label="Jetzt fotografieren">
+<input id="gallery" type="file" accept="image/*" multiple style="position:fixed;left:-9999px;top:-9999px" aria-label="Bild aus Galerie auswählen">
+<p id="status" class="small">Bereit. Die Seitenerkennung wird erst nach dem Foto geladen.</p><div id="pages"></div><button id="pdf" class="blue">📄 PDF erstellen</button><button id="clear" class="gray">Alle löschen</button></section><section id="report" class="card"><div id="rp"></div><button class="blue" onclick="window.print()">Teilen / als PDF sichern</button><button class="gray" onclick="document.getElementById('report').style.display='none'">Zurück</button></section></main>
 <script>
 const $=x=>document.getElementById(x);let pages=[];let cvReady=false;let cvFailed=false;
 function setStatus(t,c=''){const e=$('status');e.textContent=t;e.className='small '+c}
@@ -19,8 +21,17 @@ async function initOpenCv(){
    window.cv.onRuntimeInitialized=()=>{cvReady=true;setStatus('Bereit – Kamera und automatischer Zuschnitt funktionieren.','ok')};
  }catch(e){cvFailed=true;setStatus('Automatischer Zuschnitt nicht verfügbar – Fotos funktionieren trotzdem.','warn')}
 }
+let cvLoadStarted=false;
 function loadOpenCv(){
- const s=document.createElement('script');s.src='https://docs.opencv.org/4.x/opencv.js';s.async=true;s.onload=initOpenCv;s.onerror=()=>{cvFailed=true;setStatus('Automatischer Zuschnitt konnte nicht geladen werden – Fotos funktionieren trotzdem.','warn')};document.head.appendChild(s)
+ if(cvReady||cvFailed||cvLoadStarted)return;
+ cvLoadStarted=true;
+ setStatus('Foto aufgenommen – Seitenerkennung wird geladen …');
+ const s=document.createElement('script');
+ s.src='https://docs.opencv.org/4.x/opencv.js';
+ s.async=true;
+ s.onload=initOpenCv;
+ s.onerror=()=>{cvFailed=true;setStatus('Automatischer Zuschnitt konnte nicht geladen werden – das Foto wird trotzdem übernommen.','warn')};
+ document.head.appendChild(s)
 }
 async function decodeImage(file){
  if('createImageBitmap' in window){try{const b=await createImageBitmap(file);return {img:b,w:b.width,h:b.height,cleanup:()=>{try{b.close()}catch(e){}}}}catch(e){}}
@@ -31,7 +42,7 @@ async function comp(file){
  let decoded;
  try{
   decoded=await decodeImage(file);const detectScale=Math.min(1,1400/Math.max(decoded.w,decoded.h));const dc=document.createElement('canvas');dc.width=Math.max(1,Math.round(decoded.w*detectScale));dc.height=Math.max(1,Math.round(decoded.h*detectScale));dc.getContext('2d').drawImage(decoded.img,0,0,dc.width,dc.height);decoded.cleanup();decoded=null;
-  if(!cvReady) await waitForCv();
+  if(!cvReady && !cvFailed){loadOpenCv(); await waitForCv(7000);}
   if(!cvReady) return resizeCanvas(dc);
   let src=null,gray=null,blur=null,edges=null,contours=null,hierarchy=null,best=null;
   try{
@@ -48,8 +59,16 @@ async function comp(file){
  }catch(err){if(decoded)try{decoded.cleanup()}catch(e){};throw err}
 }
 async function handleFiles(files){const fs=[...files].slice(0,20);if(!fs.length)return;setStatus(`Verarbeite ${fs.length} Seite${fs.length===1?'':'n'} …`);let added=0;for(const f of fs){try{pages.push(await comp(f));added++;render()}catch(err){console.error(err);alert('Dieses Foto konnte leider nicht verarbeitet werden. Bitte versuche es erneut.')}}setStatus(added?`Fertig – ${added} Seite${added===1?'':'n'} hinzugefügt.`:'Kein Foto hinzugefügt.',added?'ok':'warn')}
-$('cam').addEventListener('change',async e=>{const files=e.target.files;await handleFiles(files);e.target.value=''})
-$('gallery').addEventListener('change',async e=>{const files=e.target.files;await handleFiles(files);e.target.value=''})
+$('cameraBtn').addEventListener('click',()=>{
+  setStatus('Kamera wird geöffnet …');
+  $('cam').click();
+});
+$('galleryBtn').addEventListener('click',()=>{
+  setStatus('Fotoauswahl wird geöffnet …');
+  $('gallery').click();
+});
+$('cam').addEventListener('change',async e=>{const files=e.target.files;if(!files||!files.length){setStatus('Bereit.');return}await handleFiles(files);e.target.value=''})
+$('gallery').addEventListener('change',async e=>{const files=e.target.files;if(!files||!files.length){setStatus('Bereit.');return}await handleFiles(files);e.target.value=''})
 function render(){$('pages').innerHTML=pages.length?pages.map((p,i)=>`<div class="page"><b>Seite ${i+1}</b><img src="${p}"><button class="red" onclick="pages.splice(${i},1);render()">Löschen</button>${i?`<button class="gray" onclick="move(${i},-1)">↑</button>`:''}${i<pages.length-1?`<button class="gray" onclick="move(${i},1)">↓</button>`:''}</div>`).join(''):'<p class="small">Noch keine Seiten gescannt.</p>'}
-window.move=(i,d)=>{const x=pages.splice(i,1)[0];pages.splice(i+d,0,x);render()};$('clear').onclick=()=>{pages=[];render()};$('pdf').onclick=()=>{if(!pages.length)return alert('Bitte zuerst eine Seite scannen.');$('rp').innerHTML=pages.map(p=>`<div class="rp"><img src="${p}"></div>`).join('');$('report').style.display='block';$('report').scrollIntoView()};render();loadOpenCv();
+window.move=(i,d)=>{const x=pages.splice(i,1)[0];pages.splice(i+d,0,x);render()};$('clear').onclick=()=>{pages=[];render()};$('pdf').onclick=()=>{if(!pages.length)return alert('Bitte zuerst eine Seite scannen.');$('rp').innerHTML=pages.map(p=>`<div class="rp"><img src="${p}"></div>`).join('');$('report').style.display='block';$('report').scrollIntoView()};render();
 </script></body></html>
