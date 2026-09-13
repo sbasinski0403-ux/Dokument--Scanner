@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dokument-Scanner</title>
+<style>
+*{box-sizing:border-box}
+:root{--blue:#2563eb;--bg:#f4f5f7;--text:#111827;--muted:#6b7280}
+body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+header{background:#111827;color:white;padding:22px 20px;font-size:25px;font-weight:850}
+main{max-width:760px;margin:auto;padding:16px}
+.card{background:white;border-radius:20px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+h1{font-size:31px;margin:0 0 10px}
+p{line-height:1.45}
+.filebox{margin:18px 0}
+input[type=file]{display:block;width:100%;font-size:17px;padding:14px;border:2px solid var(--blue);border-radius:14px;background:#eff6ff;color:#111827}
+input[type=file]::file-selector-button{border:0;border-radius:10px;padding:13px 16px;margin-right:10px;background:var(--blue);color:white;font-weight:800;font-size:17px}
+.status{color:var(--muted);margin:10px 0 4px}
+.status.ok{color:#166534;font-weight:750}
+.status.warn{color:#92400e;font-weight:700}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+button{appearance:none;border:0;border-radius:12px;padding:14px 16px;font-size:16px;font-weight:800;cursor:pointer}
+.primary{background:var(--blue);color:white}
+.secondary{background:#e5e7eb;color:#111827}
+.danger{background:#fee2e2;color:#b91c1c}
+button:disabled{opacity:.45}
+.pages{margin-top:18px;display:grid;gap:14px}
+.page{background:#fff;border:1px solid #d1d5db;border-radius:16px;padding:10px}
+.page img{display:block;width:100%;height:auto;border-radius:10px;background:#eee}
+.meta{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 2px 2px}
+.meta span{font-size:14px;color:var(--muted)}
+.meta button{padding:10px 12px;font-size:14px}
+.small{font-size:14px;color:var(--muted)}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#ecfdf5;color:#166534;font-size:13px;font-weight:800}
+
+.filebox{display:grid;gap:10px;margin:18px 0}
+.picker{display:block;width:100%;padding:16px;border-radius:14px;font-size:18px;font-weight:850;text-align:center;cursor:pointer}
+.camera-picker{background:var(--blue);color:white}
+.gallery-picker{background:#e5e7eb;color:#111827}
+.picker input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+
+</style>
+</head>
+<body>
+<header>Dokument-Scanner</header>
+<main>
+<section class="card">
+<h1>Dokument scannen</h1>
+<p>Foto aufnehmen oder aus der Galerie wählen. Die vier Blattkanten werden erkannt, der Hintergrund entfernt und die Perspektive begradigt.</p>
+
+<div class="filebox">
+  <label class="picker camera-picker">
+    📷 Foto aufnehmen
+    <input id="cameraInput" type="file" accept="image/*" capture="environment">
+  </label>
+  <label class="picker gallery-picker">
+    🖼️ Aus Galerie auswählen
+    <input id="galleryInput" type="file" accept="image/*">
+  </label>
+</div>
+
+<p id="status" class="status">Bereit. Nimm ein neues Foto auf oder wähle ein vorhandenes Bild aus der Galerie.</p>
+
+<div class="actions">
+  <button id="pdfBtn" class="primary" disabled>📄 PDF erstellen</button>
+  <button id="clearBtn" class="secondary" disabled>Alle löschen</button>
+</div>
+
+<p class="small">Tipp: Das Blatt möglichst vollständig ins Bild nehmen und etwas Kontrast zum Hintergrund lassen. Wenn keine sichere Blattkante erkannt wird, wird das Foto nur verkleinert statt falsch abgeschnitten.</p>
+</section>
+
+<div id="pages" class="pages"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+const input = document.getElementById('cameraInput');
+const galleryInput = document.getElementById('galleryInput');
+const statusEl = document.getElementById('status');
+const pagesEl = document.getElementById('pages');
+const pdfBtn = document.getElementById('pdfBtn');
+const clearBtn = document.getElementById('clearBtn');
+const pages = [];
+
+function setStatus(text, cls=''){
+  statusEl.textContent=text;
+  statusEl.className='status '+cls;
+}
+
+function loadImageFromFile(file){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{ URL.revokeObjectURL(url); resolve(img); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('Bild konnte nicht geladen werden')); };
+    img.src=url;
+  });
+}
+
+function resizeImage(img,maxSide=1500){
+  const scale=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));
+  const w=Math.max(1,Math.round(img.naturalWidth*scale));
+  const h=Math.max(1,Math.round(img.naturalHeight*scale));
+  const c=document.createElement('canvas');
+  c.width=w;c.height=h;
+  c.getContext('2d',{alpha:false}).drawImage(img,0,0,w,h);
+  return c;
+}
+
+function otsuThreshold(gray){
+  const hist=new Uint32Array(256);
+  for(let i=0;i<gray.length;i++) hist[gray[i]]++;
+  const total=gray.length;
+  let sum=0; for(let i=0;i<256;i++) sum+=i*hist[i];
+  let sumB=0,wB=0,maxVar=-1,thr=180;
+  for(let t=0;t<256;t++){
+    wB+=hist[t]; if(!wB) continue;
+    const wF=total-wB; if(!wF) break;
+    sumB+=t*hist[t];
+    const mB=sumB/wB, mF=(sum-sumB)/wF;
+    const v=wB*wF*(mB-mF)*(mB-mF);
+    if(v>maxVar){maxVar=v;thr=t;}
+  }
+  return thr;
+}
+
+// Leichte Dokumenterkennung: arbeitet nur auf einer kleinen Analysekopie.
+// Sucht den größten zusammenhängenden hellen Bereich und nutzt dessen Bounding Box.
+function detectDocumentBox(canvas){
+  const maxAnalyze=460;
+  const scale=Math.min(1,maxAnalyze/Math.max(canvas.width,canvas.height));
+  const aw=Math.max(80,Math.round(canvas.width*scale));
+  const ah=Math.max(80,Math.round(canvas.height*scale));
+  const ac=document.createElement('canvas'); ac.width=aw; ac.height=ah;
+  const ax=ac.getContext('2d',{willReadFrequently:true});
+  ax.drawImage(canvas,0,0,aw,ah);
+  const data=ax.getImageData(0,0,aw,ah).data;
+
+  const gray=new Uint8Array(aw*ah);
+  for(let i=0,j=0;i<data.length;i+=4,j++){
+    gray[j]=(data[i]*77+data[i+1]*150+data[i+2]*29)>>8;
+  }
+
+  const otsu=otsuThreshold(gray);
+  const thr=Math.max(105,Math.min(220,otsu+4));
+  const mask=new Uint8Array(gray.length);
+
+  // Bright paper mask with local contrast support.
+  for(let y=1;y<ah-1;y++){
+    for(let x=1;x<aw-1;x++){
+      const i=y*aw+x;
+      const g=gray[i];
+      const local=(gray[i-1]+gray[i+1]+gray[i-aw]+gray[i+aw])>>2;
+      if(g>=thr || (g>=95 && g-local>8)) mask[i]=1;
+    }
+  }
+
+  // Majority smoothing to close text holes.
+  let smooth=new Uint8Array(mask.length);
+  for(let y=1;y<ah-1;y++){
+    for(let x=1;x<aw-1;x++){
+      let n=0;
+      for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) n+=mask[(y+yy)*aw+x+xx];
+      if(n>=4) smooth[y*aw+x]=1;
+    }
+  }
+
+  // Largest connected component.
+  const seen=new Uint8Array(smooth.length);
+  const q=new Int32Array(smooth.length);
+  let best=null;
+  for(let s=0;s<smooth.length;s++){
+    if(!smooth[s]||seen[s]) continue;
+    let head=0,tail=0;
+    q[tail++]=s; seen[s]=1;
+    let pts=[],minX=aw,maxX=0,minY=ah,maxY=0;
+    while(head<tail){
+      const idx=q[head++], y=(idx/aw)|0, x=idx-y*aw;
+      pts.push(idx);
+      if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;
+      const ns=[idx-1,idx+1,idx-aw,idx+aw];
+      for(const ni of ns){
+        if(ni<0||ni>=smooth.length||seen[ni]||!smooth[ni]) continue;
+        const ny=(ni/aw)|0, nx=ni-ny*aw;
+        if(Math.abs(nx-x)+Math.abs(ny-y)!==1) continue;
+        seen[ni]=1;q[tail++]=ni;
+      }
+    }
+    const bw=maxX-minX+1,bh=maxY-minY+1,area=bw*bh;
+    const ratio=area/(aw*ah),fill=pts.length/area;
+    if(ratio>.14 && fill>.25){
+      const score=area*(.5+.5*fill);
+      if(!best||score>best.score) best={pts,minX,maxX,minY,maxY,score,fill,ratio};
+    }
+  }
+
+  if(!best) return null;
+
+  // Boundary points from dominant component.
+  const component=new Uint8Array(smooth.length);
+  for(const idx of best.pts) component[idx]=1;
+  const boundary=[];
+  for(const idx of best.pts){
+    const y=(idx/aw)|0, x=idx-y*aw;
+    if(x<=0||y<=0||x>=aw-1||y>=ah-1) continue;
+    if(!component[idx-1]||!component[idx+1]||!component[idx-aw]||!component[idx+aw]){
+      boundary.push({x,y});
+    }
+  }
+  if(boundary.length<20) return null;
+
+  // Robust corner candidates using extrema of x+y and x-y.
+  // Use percentile-like averaging of several strongest points to reduce noise.
+  function avgExtreme(metric, wantMin){
+    const arr=boundary.map(p=>({p,v:metric(p)})).sort((a,b)=>wantMin?a.v-b.v:b.v-a.v);
+    const n=Math.max(4,Math.min(20,Math.round(arr.length*.01)));
+    let sx=0,sy=0;
+    for(let i=0;i<n;i++){sx+=arr[i].p.x;sy+=arr[i].p.y;}
+    return {x:sx/n,y:sy/n};
+  }
+
+  let tl=avgExtreme(p=>p.x+p.y,true);
+  let br=avgExtreme(p=>p.x+p.y,false);
+  let tr=avgExtreme(p=>p.x-p.y,false);
+  let bl=avgExtreme(p=>p.x-p.y,true);
+
+  // Validate quad area and side lengths.
+  function d(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+  const top=d(tl,tr),bottom=d(bl,br),left=d(tl,bl),right=d(tr,br);
+  const avgW=(top+bottom)/2,avgH=(left+right)/2;
+  const quadArea=Math.abs(
+    tl.x*tr.y-tr.x*tl.y +
+    tr.x*br.y-br.x*tr.y +
+    br.x*bl.y-bl.x*br.y +
+    bl.x*tl.y-tl.x*bl.y
+  )/2;
+  const quadRatio=quadArea/(aw*ah);
+
+  if(avgW<aw*.25 || avgH<ah*.25 || quadRatio<.12) return null;
+
+  // Expand corners slightly away from center so paper edges aren't clipped.
+  const cx=(tl.x+tr.x+br.x+bl.x)/4;
+  const cy=(tl.y+tr.y+br.y+bl.y)/4;
+  function expand(p,f=1.015){return {x:cx+(p.x-cx)*f,y:cy+(p.y-cy)*f}}
+  tl=expand(tl);tr=expand(tr);br=expand(br);bl=expand(bl);
+
+  const inv=1/scale;
+  const quad=[tl,tr,br,bl].map(p=>({
+    x:Math.max(0,Math.min(canvas.width-1,p.x*inv)),
+    y:Math.max(0,Math.min(canvas.height-1,p.y*inv))
+  }));
+
+  // If quad nearly equals full image, reject.
+  const minQX=Math.min(...quad.map(p=>p.x)), maxQX=Math.max(...quad.map(p=>p.x));
+  const minQY=Math.min(...quad.map(p=>p.y)), maxQY=Math.max(...quad.map(p=>p.y));
+  if(((maxQX-minQX)*(maxQY-minQY))/(canvas.width*canvas.height)>.985) return null;
+
+  return {quad};
+}
+
+function cropCanvas(src,det){
+  if(!det||!det.quad) return src;
+  const [tl,tr,br,bl]=det.quad;
+  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  let outW=Math.round(Math.max(dist(tl,tr),dist(bl,br)));
+  let outH=Math.round(Math.max(dist(tl,bl),dist(tr,br)));
+  outW=Math.max(200,Math.min(1800,outW));
+  outH=Math.max(200,Math.min(2200,outH));
+
+  const sctx=src.getContext('2d',{willReadFrequently:true});
+  const sdata=sctx.getImageData(0,0,src.width,src.height);
+  const out=document.createElement('canvas');
+  out.width=outW; out.height=outH;
+  const octx=out.getContext('2d');
+  const oimg=octx.createImageData(outW,outH);
+
+  // Bilinear quad warp. For document photos with moderate perspective this
+  // cleanly removes the background while staying lightweight on iPhone.
+  for(let y=0;y<outH;y++){
+    const v=outH===1?0:y/(outH-1);
+    const lx=tl.x+(bl.x-tl.x)*v;
+    const ly=tl.y+(bl.y-tl.y)*v;
+    const rx=tr.x+(br.x-tr.x)*v;
+    const ry=tr.y+(br.y-tr.y)*v;
+    for(let x=0;x<outW;x++){
+      const u=outW===1?0:x/(outW-1);
+      const sx=lx+(rx-lx)*u;
+      const sy=ly+(ry-ly)*u;
+
+      // nearest-neighbour sampling is fast and sufficient for document text
+      const ix=Math.max(0,Math.min(src.width-1,Math.round(sx)));
+      const iy=Math.max(0,Math.min(src.height-1,Math.round(sy)));
+      const si=(iy*src.width+ix)*4;
+      const oi=(y*outW+x)*4;
+      oimg.data[oi]=sdata.data[si];
+      oimg.data[oi+1]=sdata.data[si+1];
+      oimg.data[oi+2]=sdata.data[si+2];
+      oimg.data[oi+3]=255;
+    }
+  }
+  octx.putImageData(oimg,0,0);
+  return out;
+}
+
+function canvasToBlob(canvas,quality=.86){
+  return new Promise((resolve,reject)=>{
+    canvas.toBlob(b=>b?resolve(b):reject(new Error('JPEG konnte nicht erzeugt werden')),'image/jpeg',quality);
+  });
+}
+
+async function processFile(file){
+  setStatus('Foto wird übernommen …');
+  const img=await loadImageFromFile(file);
+
+  // Erst klein rechnen, dann analysieren: verhindert iPhone-Hänger.
+  const resized=resizeImage(img,1500);
+
+  // Analyse absichtlich asynchron nach einem Render-Zyklus.
+  await new Promise(r=>setTimeout(r,30));
+  const detection=detectDocumentBox(resized);
+  const finalCanvas=cropCanvas(resized,detection);
+  const blob=await canvasToBlob(finalCanvas,.86);
+  const url=URL.createObjectURL(blob);
+
+  pages.push({
+    blob,url,
+    width:finalCanvas.width,
+    height:finalCanvas.height,
+    cropped:!!detection
+  });
+  renderPages();
+  setStatus(detection ? '✅ Foto übernommen, Blattkanten erkannt und perspektivisch zugeschnitten.' : '✅ Foto übernommen. Keine sichere Blattkante erkannt – deshalb nicht zugeschnitten.','ok');
+}
+
+function renderPages(){
+  pagesEl.innerHTML='';
+  pages.forEach((p,i)=>{
+    const card=document.createElement('div');card.className='page';
+    const img=document.createElement('img');img.src=p.url;img.alt='Gescannte Seite '+(i+1);
+    const meta=document.createElement('div');meta.className='meta';
+    const left=document.createElement('span');
+    left.innerHTML='Seite '+(i+1)+' · '+(p.cropped?'<span class="badge">zugeschnitten</span>':'Originalausschnitt');
+    const del=document.createElement('button');del.className='danger';del.textContent='Löschen';
+    del.onclick=()=>{URL.revokeObjectURL(p.url);pages.splice(i,1);renderPages();};
+    meta.append(left,del);card.append(img,meta);pagesEl.append(card);
+  });
+  pdfBtn.disabled=!pages.length;
+  clearBtn.disabled=!pages.length;
+}
+
+async function handleSelectedFile(file, sourceInput){
+  if(!file) return;
+  sourceInput.disabled=true;
+  try{ await processFile(file); }
+  catch(e){console.error(e);setStatus('Das Foto konnte nicht verarbeitet werden. Bitte erneut versuchen.','warn');}
+  finally{ sourceInput.value=''; sourceInput.disabled=false; }
+}
+
+input.addEventListener('change', async ()=>{
+  const file=input.files&&input.files[0];
+  await handleSelectedFile(file,input);
+});
+
+galleryInput.addEventListener('change', async ()=>{
+  const file=galleryInput.files&&galleryInput.files[0];
+  await handleSelectedFile(file,galleryInput);
+});
+
+clearBtn.onclick=()=>{
+  pages.forEach(p=>URL.revokeObjectURL(p.url));
+  pages.length=0;renderPages();setStatus('Alle Seiten gelöscht.');
+};
+
+pdfBtn.onclick=async()=>{
+  if(!pages.length)return;
+  if(!window.jspdf||!window.jspdf.jsPDF){
+    alert('PDF-Modul konnte nicht geladen werden. Bitte Internetverbindung prüfen und Seite neu laden.');
+    return;
+  }
+  setStatus('PDF wird erstellt …');
+  const {jsPDF}=window.jspdf;
+  let pdf=null;
+  for(let i=0;i<pages.length;i++){
+    const p=pages[i];
+    const orientation=p.width>=p.height?'landscape':'portrait';
+    const pageW=orientation==='portrait'?210:297;
+    const pageH=orientation==='portrait'?297:210;
+    if(i===0) pdf=new jsPDF({orientation,unit:'mm',format:'a4'});
+    else pdf.addPage('a4',orientation);
+
+    const imgData=await blobToDataURL(p.blob);
+    const margin=8;
+    const maxW=pageW-margin*2,maxH=pageH-margin*2;
+    const r=Math.min(maxW/p.width,maxH/p.height);
+    const w=p.width*r,h=p.height*r;
+    const x=(pageW-w)/2,y=(pageH-h)/2;
+    pdf.addImage(imgData,'JPEG',x,y,w,h,undefined,'FAST');
+  }
+  pdf.save('Dokument-Scan.pdf');
+  setStatus('✅ PDF wurde erstellt.','ok');
+};
+
+function blobToDataURL(blob){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(blob);
+  });
+}
+</script>
+</body>
+</html>
