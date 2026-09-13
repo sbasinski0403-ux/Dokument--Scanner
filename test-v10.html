@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dokument-Scanner</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f4f5f7;color:#111827}
+  header{background:#111827;color:#fff;padding:20px;font-size:24px;font-weight:800}
+  main{max-width:700px;margin:auto;padding:16px}
+  .card{background:#fff;padding:20px;border-radius:18px}
+  h2{font-size:30px;margin:0 0 12px}
+  p{line-height:1.45}
+  .native-wrap{margin:18px 0}
+  input[type=file]{
+    display:block;
+    width:100%;
+    font-size:18px;
+    padding:14px;
+    border:2px solid #2563eb;
+    border-radius:12px;
+    background:#eff6ff;
+    color:#111827;
+  }
+  input[type=file]::file-selector-button{
+    border:0;
+    border-radius:9px;
+    padding:13px 16px;
+    margin-right:12px;
+    background:#2563eb;
+    color:#fff;
+    font-weight:800;
+    font-size:17px;
+  }
+  .hint{color:#6b7280;font-size:15px}
+  .ok{color:#166534;font-weight:700}
+  .page{margin-top:18px;border:1px solid #d1d5db;border-radius:12px;padding:10px}
+  .page img{display:block;width:100%;height:auto;border-radius:8px}
+  button{width:100%;margin-top:10px;border:0;border-radius:10px;padding:14px;font-weight:800;font-size:16px;background:#fee2e2;color:#b91c1c}
+</style>
+</head>
+<body>
+<header>Dokument-Scanner – Test v10</header>
+<main>
+  <section class="card">
+    <h2>iPhone-Kamera testen</h2>
+    <p>Diese Version verwendet <b>keine Live-Webcam</b> und keine Bildverarbeitung. Tippe direkt auf das echte iPhone-Dateifeld unten und wähle die Kamera.</p>
+
+    <div class="native-wrap">
+      <input id="cameraInput" type="file" accept="image/*" capture="environment">
+    </div>
+
+    <p id="status" class="hint">Bereit. Tippe oben auf „Datei auswählen“ bzw. „Foto aufnehmen“.</p>
+    <div id="preview"></div>
+  </section>
+</main>
+
+<script>
+const input = document.getElementById('cameraInput');
+const statusEl = document.getElementById('status');
+const preview = document.getElementById('preview');
+let currentUrl = null;
+
+input.addEventListener('change', () => {
+  const file = input.files && input.files[0];
+  if (!file) {
+    statusEl.textContent = 'Keine Aufnahme ausgewählt.';
+    return;
+  }
+
+  try {
+    if (currentUrl) URL.revokeObjectURL(currentUrl);
+    currentUrl = URL.createObjectURL(file);
+
+    preview.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'page';
+
+    const img = document.createElement('img');
+    img.alt = 'Aufgenommenes Foto';
+    img.src = currentUrl;
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = 'Foto entfernen';
+    del.addEventListener('click', () => {
+      if (currentUrl) URL.revokeObjectURL(currentUrl);
+      currentUrl = null;
+      input.value = '';
+      preview.innerHTML = '';
+      statusEl.textContent = 'Bereit für ein neues Foto.';
+    });
+
+    img.onload = () => {
+      statusEl.className = 'ok';
+      statusEl.textContent = '✅ Foto wurde übernommen und angezeigt.';
+    };
+    img.onerror = () => {
+      statusEl.className = 'hint';
+      statusEl.textContent = 'Das Foto wurde ausgewählt, kann aber in dieser Form nicht angezeigt werden.';
+    };
+
+    box.appendChild(img);
+    box.appendChild(del);
+    preview.appendChild(box);
+  } catch (e) {
+    console.error(e);
+    statusEl.className = 'hint';
+    statusEl.textContent = 'Fehler beim Übernehmen des Fotos.';
+  }
+});
+</script>
+</body>
+</html>
