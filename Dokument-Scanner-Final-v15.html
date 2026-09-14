@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dokument-Scanner v15</title>
+<style>
+*{box-sizing:border-box}
+:root{--blue:#2563eb;--bg:#f3f4f6;--text:#111827;--muted:#6b7280}
+body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+header{background:#111827;color:#fff;padding:20px;font-weight:850;font-size:25px}
+main{max-width:760px;margin:auto;padding:16px}
+.card{background:#fff;border-radius:20px;padding:20px;margin-bottom:16px}
+h1{font-size:30px;margin:0 0 10px}
+p{line-height:1.45}
+.pickers{display:grid;gap:10px;margin:18px 0}
+.picker{display:block;width:100%;padding:16px;border-radius:14px;font-size:18px;font-weight:850;text-align:center}
+.picker.cam{background:var(--blue);color:#fff}
+.picker.gal{background:#e5e7eb;color:#111827}
+.picker input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.status{color:var(--muted);font-size:15px}
+.status.ok{color:#166534;font-weight:750}
+.status.warn{color:#92400e;font-weight:750}
+.editor{display:none}
+.editor.active{display:block}
+.canvasWrap{position:relative;width:100%;overflow:hidden;background:#111;border-radius:14px;touch-action:none}
+#editCanvas{display:block;width:100%;height:auto}
+.handle{position:absolute;width:28px;height:28px;border-radius:50%;background:#fff;border:4px solid #2563eb;transform:translate(-50%,-50%);box-shadow:0 1px 6px rgba(0,0,0,.35);touch-action:none}
+.line{position:absolute;height:3px;background:#2563eb;transform-origin:0 50%;pointer-events:none}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+button{border:0;border-radius:12px;padding:13px 15px;font-size:16px;font-weight:800}
+.primary{background:var(--blue);color:#fff}
+.secondary{background:#e5e7eb;color:#111827}
+.danger{background:#fee2e2;color:#b91c1c}
+button:disabled{opacity:.45}
+.modeRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.modeBtn{background:#e5e7eb;color:#111827;padding:10px 12px}
+.modeBtn.active{background:#111827;color:#fff}
+.pages{display:grid;gap:14px;margin-top:16px}
+.page{background:#fff;border:1px solid #d1d5db;border-radius:16px;padding:10px}
+.page img{display:block;width:100%;height:auto;border-radius:10px;background:#fff}
+.meta{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 2px 2px}
+.meta span{font-size:14px;color:var(--muted)}
+.small{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>Dokument-Scanner</header>
+<main>
+<section class="card">
+<h1>Dokument scannen</h1>
+<p>Nimm ein Foto auf oder wähle eins aus der Galerie. Danach kannst du die vier Blatt-Ecken korrigieren. Erst dann wird perspektivisch zugeschnitten und als Scan aufbereitet.</p>
+
+<div class="pickers">
+<label class="picker cam">📷 Foto aufnehmen<input id="cameraInput" type="file" accept="image/*" capture="environment"></label>
+<label class="picker gal">🖼️ Aus Galerie auswählen<input id="galleryInput" type="file" accept="image/*"></label>
+</div>
+
+<p id="status" class="status">Bereit.</p>
+</section>
+
+<section id="editor" class="card editor">
+<h2 style="margin-top:0">Blattrand festlegen</h2>
+<p class="small">Ziehe die vier blauen Punkte genau auf die Blatt-Ecken. Die Automatik setzt sie zunächst selbst.</p>
+<div id="canvasWrap" class="canvasWrap">
+<canvas id="editCanvas"></canvas>
+<div class="line" id="l0"></div><div class="line" id="l1"></div><div class="line" id="l2"></div><div class="line" id="l3"></div>
+<div class="handle" id="h0"></div><div class="handle" id="h1"></div><div class="handle" id="h2"></div><div class="handle" id="h3"></div>
+</div>
+
+<div class="modeRow">
+<button class="modeBtn active" data-mode="scan">Scan</button>
+<button class="modeBtn" data-mode="gray">Graustufen</button>
+<button class="modeBtn" data-mode="color">Farbe</button>
+</div>
+
+<div class="actions">
+<button id="applyBtn" class="primary">✂️ Zuschneiden & übernehmen</button>
+<button id="cancelBtn" class="secondary">Abbrechen</button>
+</div>
+</section>
+
+<section class="card">
+<div class="actions" style="margin-top:0">
+<button id="pdfBtn" class="primary" disabled>📄 PDF erstellen</button>
+<button id="clearBtn" class="secondary" disabled>Alle löschen</button>
+</div>
+<div id="pages" class="pages"></div>
+</section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+const cameraInput=document.getElementById('cameraInput');
+const galleryInput=document.getElementById('galleryInput');
+const statusEl=document.getElementById('status');
+const editor=document.getElementById('editor');
+const wrap=document.getElementById('canvasWrap');
+const canvas=document.getElementById('editCanvas');
+const ctx=canvas.getContext('2d',{willReadFrequently:true});
+const handles=[0,1,2,3].map(i=>document.getElementById('h'+i));
+const lines=[0,1,2,3].map(i=>document.getElementById('l'+i));
+const applyBtn=document.getElementById('applyBtn');
+const cancelBtn=document.getElementById('cancelBtn');
+const pagesEl=document.getElementById('pages');
+const pdfBtn=document.getElementById('pdfBtn');
+const clearBtn=document.getElementById('clearBtn');
+const pages=[];
+let sourceCanvas=null,corners=[],dragIndex=-1,mode='scan';
+
+function setStatus(t,c=''){statusEl.textContent=t;statusEl.className='status '+c}
+function loadFile(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),img=new Image();img.onload=()=>{URL.revokeObjectURL(u);res(img)};img.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('Bild nicht lesbar'))};img.src=u})}
+function resize(img,maxSide=1800){const s=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.naturalWidth*s));c.height=Math.max(1,Math.round(img.naturalHeight*s));c.getContext('2d',{alpha:false}).drawImage(img,0,0,c.width,c.height);return c}
+
+function autoCorners(src){
+ const maxA=420,s=Math.min(1,maxA/Math.max(src.width,src.height));
+ const w=Math.round(src.width*s),h=Math.round(src.height*s);
+ const c=document.createElement('canvas');c.width=w;c.height=h;
+ const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(src,0,0,w,h);
+ const d=x.getImageData(0,0,w,h).data,g=new Uint8Array(w*h);
+ let sum=0;
+ for(let i=0,j=0;i<d.length;i+=4,j++){g[j]=(77*d[i]+150*d[i+1]+29*d[i+2])>>8;sum+=g[j]}
+ const mean=sum/g.length,thr=Math.max(115,Math.min(220,mean+20)),pts=[];
+ for(let y=1;y<h-1;y+=2)for(let xx=1;xx<w-1;xx+=2)if(g[y*w+xx]>=thr)pts.push({x:xx,y});
+ if(pts.length<100)return [{x:.08*src.width,y:.08*src.height},{x:.92*src.width,y:.08*src.height},{x:.92*src.width,y:.92*src.height},{x:.08*src.width,y:.92*src.height}];
+ function extreme(fn,min=true){let best=pts[0],bv=fn(best);for(const p of pts){const v=fn(p);if((min&&v<bv)||(!min&&v>bv)){best=p;bv=v}}return{x:best.x/s,y:best.y/s}}
+ let tl=extreme(p=>p.x+p.y,true),br=extreme(p=>p.x+p.y,false),tr=extreme(p=>p.x-p.y,false),bl=extreme(p=>p.x-p.y,true);
+ const cx=(tl.x+tr.x+br.x+bl.x)/4,cy=(tl.y+tr.y+br.y+bl.y)/4,shrink=p=>({x:cx+(p.x-cx)*.98,y:cy+(p.y-cy)*.98});
+ return[shrink(tl),shrink(tr),shrink(br),shrink(bl)];
+}
+
+function openEditor(src){
+ sourceCanvas=src;canvas.width=src.width;canvas.height=src.height;ctx.drawImage(src,0,0);corners=autoCorners(src);
+ editor.classList.add('active');updateOverlay();editor.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function updateOverlay(){
+ const r=wrap.getBoundingClientRect(),sx=r.width/canvas.width,sy=r.height/canvas.height;
+ handles.forEach((h,i)=>{h.style.left=(corners[i].x*sx)+'px';h.style.top=(corners[i].y*sy)+'px'});
+ for(let i=0;i<4;i++){const a=corners[i],b=corners[(i+1)%4],x1=a.x*sx,y1=a.y*sy,x2=b.x*sx,y2=b.y*sy,dx=x2-x1,dy=y2-y1;lines[i].style.left=x1+'px';lines[i].style.top=y1+'px';lines[i].style.width=Math.hypot(dx,dy)+'px';lines[i].style.transform='rotate('+Math.atan2(dy,dx)+'rad)'}
+}
+window.addEventListener('resize',()=>{if(editor.classList.contains('active'))updateOverlay()});
+handles.forEach((h,i)=>{
+ h.addEventListener('pointerdown',e=>{dragIndex=i;h.setPointerCapture(e.pointerId);e.preventDefault()});
+ h.addEventListener('pointermove',e=>{if(dragIndex!==i)return;const r=wrap.getBoundingClientRect();const x=(e.clientX-r.left)*canvas.width/r.width,y=(e.clientY-r.top)*canvas.height/r.height;corners[i]={x:Math.max(0,Math.min(canvas.width-1,x)),y:Math.max(0,Math.min(canvas.height-1,y))};updateOverlay();e.preventDefault()});
+ h.addEventListener('pointerup',()=>dragIndex=-1);h.addEventListener('pointercancel',()=>dragIndex=-1);
+});
+document.querySelectorAll('.modeBtn').forEach(b=>b.onclick=()=>{document.querySelectorAll('.modeBtn').forEach(x=>x.classList.remove('active'));b.classList.add('active');mode=b.dataset.mode});
+
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function warp(src,pts){
+ const[tl,tr,br,bl]=pts;let W=Math.round(Math.max(dist(tl,tr),dist(bl,br))),H=Math.round(Math.max(dist(tl,bl),dist(tr,br)));
+ const maxOut=1800,sc=Math.min(1,maxOut/Math.max(W,H));W=Math.max(300,Math.round(W*sc));H=Math.max(300,Math.round(H*sc));
+ const sctx=src.getContext('2d',{willReadFrequently:true}),sd=sctx.getImageData(0,0,src.width,src.height);
+ const out=document.createElement('canvas');out.width=W;out.height=H;const octx=out.getContext('2d'),od=octx.createImageData(W,H);
+ for(let y=0;y<H;y++){const v=y/(H-1),lx=tl.x+(bl.x-tl.x)*v,ly=tl.y+(bl.y-tl.y)*v,rx=tr.x+(br.x-tr.x)*v,ry=tr.y+(br.y-tr.y)*v;
+  for(let x=0;x<W;x++){const u=x/(W-1),sx=Math.max(0,Math.min(src.width-1,Math.round(lx+(rx-lx)*u))),sy=Math.max(0,Math.min(src.height-1,Math.round(ly+(ry-ly)*u))),si=(sy*src.width+sx)*4,oi=(y*W+x)*4;od.data[oi]=sd.data[si];od.data[oi+1]=sd.data[si+1];od.data[oi+2]=sd.data[si+2];od.data[oi+3]=255}}
+ octx.putImageData(od,0,0);return out;
+}
+function enhance(c,mode){
+ if(mode==='color')return c;const x=c.getContext('2d',{willReadFrequently:true}),im=x.getImageData(0,0,c.width,c.height),d=im.data,gray=new Uint8Array(c.width*c.height);let min=255,max=0;
+ for(let i=0,j=0;i<d.length;i+=4,j++){const v=(77*d[i]+150*d[i+1]+29*d[i+2])>>8;gray[j]=v;if(v<min)min=v;if(v>max)max=v}
+ if(mode==='gray'){const lo=Math.max(0,min+8),hi=Math.min(255,max-5),den=Math.max(30,hi-lo);for(let i=0,j=0;i<d.length;i+=4,j++){let v=(gray[j]-lo)*255/den;v=Math.max(0,Math.min(255,v));d[i]=d[i+1]=d[i+2]=v}}
+ else{for(let i=0,j=0;i<d.length;i+=4,j++){let v=gray[j]/255;v=Math.pow(v,.82);v=(v-.12)*1.18;v=Math.max(0,Math.min(1,v));if(v>.72)v=Math.min(1,v+(v-.72)*.75);const q=Math.round(v*255);d[i]=d[i+1]=d[i+2]=q}}
+ x.putImageData(im,0,0);return c;
+}
+function canvasBlob(c){return new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('JPEG Fehler')),'image/jpeg',.88))}
+async function addScan(){setStatus('Blatt wird zugeschnitten und als Scan aufbereitet …');let out=warp(sourceCanvas,corners);out=enhance(out,mode);const blob=await canvasBlob(out),url=URL.createObjectURL(blob);pages.push({blob,url,w:out.width,h:out.height});editor.classList.remove('active');sourceCanvas=null;renderPages();setStatus('✅ Seite zugeschnitten und als Scan übernommen.','ok')}
+applyBtn.onclick=()=>addScan().catch(e=>{console.error(e);setStatus('Verarbeitung fehlgeschlagen.','warn')});
+cancelBtn.onclick=()=>{editor.classList.remove('active');sourceCanvas=null;setStatus('Auswahl abgebrochen.')};
+
+async function handle(file,input){if(!file)return;input.disabled=true;setStatus('Foto wird geladen …');try{const img=await loadFile(file);openEditor(resize(img));setStatus('Blattecken prüfen und bei Bedarf verschieben.')}catch(e){console.error(e);setStatus('Bild konnte nicht geladen werden.','warn')}finally{input.value='';input.disabled=false}}
+cameraInput.onchange=()=>handle(cameraInput.files&&cameraInput.files[0],cameraInput);
+galleryInput.onchange=()=>handle(galleryInput.files&&galleryInput.files[0],galleryInput);
+
+function renderPages(){
+ pagesEl.innerHTML='';pages.forEach((p,i)=>{const c=document.createElement('div');c.className='page';const im=document.createElement('img');im.src=p.url;const m=document.createElement('div');m.className='meta';const s=document.createElement('span');s.textContent='Seite '+(i+1);const b=document.createElement('button');b.className='danger';b.textContent='Löschen';b.onclick=()=>{URL.revokeObjectURL(p.url);pages.splice(i,1);renderPages()};m.append(s,b);c.append(im,m);pagesEl.append(c)});pdfBtn.disabled=!pages.length;clearBtn.disabled=!pages.length;
+}
+clearBtn.onclick=()=>{pages.forEach(p=>URL.revokeObjectURL(p.url));pages.length=0;renderPages();setStatus('Alle Seiten gelöscht.')};
+function blobDataURL(b){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(b)})}
+pdfBtn.onclick=async()=>{if(!pages.length)return;if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF-Modul konnte nicht geladen werden.');return}const{jsPDF}=window.jspdf;let pdf=null;for(let i=0;i<pages.length;i++){const p=pages[i],land=p.w>=p.h,ori=land?'landscape':'portrait',pw=land?297:210,ph=land?210:297;if(!pdf)pdf=new jsPDF({orientation:ori,unit:'mm',format:'a4'});else pdf.addPage('a4',ori);const data=await blobDataURL(p.blob),sc=Math.min((pw-16)/p.w,(ph-16)/p.h),w=p.w*sc,h=p.h*sc;pdf.addImage(data,'JPEG',(pw-w)/2,(ph-h)/2,w,h,undefined,'FAST')}pdf.save('Dokument-Scan.pdf');setStatus('✅ PDF erstellt.','ok')};
+</script>
+</body>
+</html>
